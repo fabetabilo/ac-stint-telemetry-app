@@ -16,28 +16,34 @@ import json
 import configparser
 import math
 
+try:
+    from features.radar import RadarSystem
+except Exception as e:
+    ac.log("Stint ERROR: 'radar.py' not found: " + str(e))
 
 SERVER_IP = "127.0.0.1"
 SERVER_PORT = 9996
 UPDATE_FREQ = 20 # 20Hz
-HANDSHAKE_FREQ = 2.0 # 2s
+SLOW_FREQ = 2.0 # 2s
 PACKET_TYPE = 2
 PACKET_TYPE_S = 3
 
 sock = None
+radar_sys = None
 lbl_status = 0
 
 timer_fast = 0
 timer_slow = 0
-period_fast = 1.0 / UPDATE_FREQ
-period_slow = HANDSHAKE_FREQ
+period_fast = 1.0 / float(UPDATE_FREQ)
+period_slow = SLOW_FREQ
 
 DRIVER_NAME = "Driver"
 CAR_MODEL = "UNKNOWN"
+TEAM_ID = "DMG"
 
 def load_config():
 
-    global SERVER_IP, SERVER_PORT, UPDATE_FREQ, period_fast, period_slow
+    global SERVER_IP, SERVER_PORT, UPDATE_FREQ, TEAM_ID, period_fast, period_slow
 
     try:
         config = configparser.ConfigParser()
@@ -48,6 +54,8 @@ def load_config():
             SERVER_IP = config.get("SETTINGS", "SERVER_IP", fallback="127.0.0.1")
             SERVER_PORT = config.getint("SETTINGS", "SERVER_PORT", fallback=9996)
             UPDATE_FREQ = config.getint("SETTINGS", "UPDATE_FREQ", fallback=20)
+        if config.has_section("DRIVER"):
+            TEAM_ID = config.get("DRIVER", "TEAM_ID", fallback="DMG")
         
         if UPDATE_FREQ <= 0: UPDATE_FREQ = 20
         period_fast = 1.0 / float(UPDATE_FREQ)
@@ -73,10 +81,12 @@ def get_nose_direction():
 
 def send_telemetry():
     
-    global sock, SERVER_IP, SERVER_PORT
+    global sock, radar_sys, SERVER_IP, SERVER_PORT
     
     try:
         
+        position = ac.getCarRealTimeLeaderboardPosition(0) + 1
+
         rpm = int(ac.getCarState(0, acsys.CS.RPM))
         speed = round(ac.getCarState(0, acsys.CS.SpeedKMH),1)
         gear = ac.getCarState(0, acsys.CS.Gear) - 1
@@ -96,32 +106,44 @@ def send_telemetry():
         x = round(pos[0],2)
         z = round(pos[2],2)
 
+        nearby_cars = []
+
+        if radar_sys:
+            nearby_cars = radar_sys.get_nearby_cars(x, z)
+
         tl_payload = {
             "type": PACKET_TYPE,
             "car": {
+                "position": position,
                 "rpm": rpm,
                 "speed": speed,
                 "gear": gear,
                 "throttle": throttle,
                 "brake": brake,
                 "steer": steer,
-                "drag": drag,
-                "downForce": downforce,
-                "clFront": cl_front,
-                "clRear": cl_rear,
-                "cdAero": cd_aero,
-                "noseDir": nose_dir,
-                "x": x,
-                "z": z
+                "aero": {
+                    "drag": drag,
+                    "downForce": downforce,
+                    "clFront": cl_front,
+                    "clRear": cl_rear,
+                    "cdAero": cd_aero
+                },
+                "gps": {
+                    "noseDir": nose_dir,
+                    "x": x,
+                    "z": z
+                },
+                "radar": nearby_cars
             }
         }
+        # ac.log("STINT: " + json.dumps(tl_payload, indent=2))
 
         if sock:
             msg = json.dumps(tl_payload).encode('utf-8')
             sock.sendto(msg, (SERVER_IP, SERVER_PORT))
 
     except Exception as e:
-        ac.setText(lbl_status, "ERROR: " + str(e))
+        ac.log("STINT ERROR: TL " + str(e))
 
 def send_handshake():
     
@@ -131,6 +153,7 @@ def send_handshake():
         s_payload = {
             "type": PACKET_TYPE_S,
             "driver": DRIVER_NAME,
+            "teamId": TEAM_ID,
             "car": CAR_MODEL
         }
         
@@ -143,9 +166,16 @@ def send_handshake():
 
 def acMain(ac_version):
 
-    global sock, lbl_status, DRIVER_NAME, CAR_MODEL
+    global sock, lbl_status, radar_sys, DRIVER_NAME, CAR_MODEL
     
     load_config()
+
+    try:
+        radar_sys = RadarSystem(radar_range=40.0)
+        radar_sys.scan_grid()
+        
+    except:
+        ac.log("Stint ERROR: Initializing Radar system")
 
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
