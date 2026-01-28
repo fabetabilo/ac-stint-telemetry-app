@@ -208,9 +208,12 @@ def send_susp_gforce_data():
         if sim_info is None:
             return
 
+        st = sim_info.physics.suspensionTravel
+        ag = sim_info.physics.accG     
+
         packet_body = DYNAMICS_STRUCT.pack(
-            *sim_info.physics.suspensionTravel,
-            *sim_info.physics.accG
+            st[0], st[1], st[2], st[3], # FL, FR, RL, RR
+            ag[0], ag[1], ag[2]         # X, Y, Z
         )
 
         send_udp(PKT_SUSP_GFORCE, packet_body)
@@ -266,17 +269,19 @@ def send_tyre_data():
         compound = ac.getCarTyreCompound(0) or "NC"
         tyre_compound = compound.encode('utf-8')[:10]
 
-        raw_temps = ac.getCarState(0, acsys.CS.CurrentTyresCoreTemp)
-        raw_pressures = ac.getCarState(0, acsys.CS.DynamicPressure)
-        raw_dirt = ac.getCarState(0, acsys.CS.TyreDirtyLevel)
+        temps = ac.getCarState(0, acsys.CS.CurrentTyresCoreTemp)
+        press = ac.getCarState(0, acsys.CS.DynamicPressure)
+        dirt = ac.getCarState(0, acsys.CS.TyreDirtyLevel)
+        wear = sim_info.physics.tyreWear
+        slip = sim_info.physics.wheelSlip
 
         packet_body = TYRE_STRUCT.pack(
             tyre_compound,
-            *raw_temps,
-            *raw_pressures,
-            *raw_dirt,
-            *sim_info.physics.tyreWear,
-            *sim_info.physics.wheelSlip
+            temps[0], temps[1], temps[2], temps[3],
+            press[0], press[1], press[2], press[3],
+            dirt[0], dirt[1], dirt[2], dirt[3],
+            wear[0], wear[1], wear[2], wear[3],
+            slip[0], slip[1], slip[2], slip[3]
         )
 
         send_udp(PKT_TYRE, packet_body)
