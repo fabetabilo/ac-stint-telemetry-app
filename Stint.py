@@ -43,8 +43,8 @@ period_fast = 1.0 / float(UPDATE_FREQ)
 period_slow = UPDATE_SLOW_FREQ
 
 HEADER_STRUCT = struct.Struct('<BB')
-INFO_STRUCT = struct.Struct('<4s32s20sB10s?')
-INPUT_STRUCT = struct.Struct('<I8fb')
+INFO_STRUCT = struct.Struct('<4s32s20s?')
+INPUT_STRUCT = struct.Struct('<I9f')
 DYNAMICS_STRUCT = struct.Struct('<4f3f')
 TIMING_STRUCT = struct.Struct('<BIfBIIIH?B')
 TYRE_STRUCT = struct.Struct('<10s20f')
@@ -174,7 +174,7 @@ def send_input_data():
         rpm = int(ac.getCarState(0, acsys.CS.RPM))
         turbo = ac.getCarState(0, acsys.CS.TurboBoost) #kpa
         speed = ac.getCarState(0, acsys.CS.SpeedKMH)
-        gear = ac.getCarState(0, acsys.CS.Gear) - 1
+        gear = int(ac.getCarState(0, acsys.CS.Gear) - 1)
         throttle = ac.getCarState(0, acsys.CS.Gas)
         brake = ac.getCarState(0, acsys.CS.Brake)
         steer = ac.getCarState(0, acsys.CS.Steer)
@@ -369,18 +369,12 @@ def send_info():
         num = (str(CAR_NUMBER) or "").encode('utf-8')[:4]
         driver = (str(DRIVER_NAME) or "Driver").encode('utf-8')[:32]
         team_id = (str(TEAM_ID) or "DMG").encode('utf-8')[:20]
-
-        pos = int(ac.getCarRealTimeLeaderboardPosition(0) + 1)
-        tyre_compound = ac.getCarTyreCompound(0) or "NC"
-        compound = tyre_compound.encode('utf-8')[:10]
         in_pit_box = bool(ac.isCarInPit(0))
 
         packet_body = INFO_STRUCT.pack(
             num,
             driver,
             team_id,
-            pos,
-            compound,
             in_pit_box
         )
 
