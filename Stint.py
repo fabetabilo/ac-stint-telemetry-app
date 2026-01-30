@@ -43,9 +43,10 @@ period_fast = 1.0 / float(UPDATE_FREQ)
 period_slow = UPDATE_SLOW_FREQ
 
 HEADER_STRUCT = struct.Struct('<BB')
-INFO_STRUCT = struct.Struct('<4s32s20s?')
-INPUT_STRUCT = struct.Struct('<I9f')
-DYNAMICS_STRUCT = struct.Struct('<4f3f')
+INFO_STRUCT = struct.Struct('<4s32s20s?6f??')
+INPUT_STRUCT = struct.Struct('<I10f')
+IMU_STRUCT = struct.Struct('<5f')
+SUSP_STRUCT = struct.Struct('<16f')
 TIMING_STRUCT = struct.Struct('<BIfBIIIH?B')
 TYRE_STRUCT = struct.Struct('<10s20f')
 AERO_STRUCT = struct.Struct('<7f')
@@ -54,11 +55,12 @@ RADAR_BLIP_STRUCT = struct.Struct('<B2f')
 
 PKT_INFO = 1
 PKT_INPUT = 2
-PKT_SUSP_GFORCE = 3
-PKT_LIVE_TIMING = 4
-PKT_TYRE = 5
-PKT_AERO = 6
-PKT_GPS_RADAR = 7
+PKT_IMU = 3
+PKT_SUSP = 4
+PKT_LIVE_TIMING = 5
+PKT_GPS_RADAR = 6
+PKT_TYRE = 7
+PKT_AERO = 8
 
 DRIVER_IDX = 1
 DRIVER_NAME = "Driver"
@@ -177,6 +179,7 @@ def send_input_data():
         gear = int(ac.getCarState(0, acsys.CS.Gear) - 1)
         throttle = ac.getCarState(0, acsys.CS.Gas)
         brake = ac.getCarState(0, acsys.CS.Brake)
+        clutch = ac.getCarState(0, acsys.CS.Clutch)
         steer = ac.getCarState(0, acsys.CS.Steer)
         fuel = sim_info.physics.fuel
         kers_charge = sim_info.physics.kersCharge
@@ -189,6 +192,7 @@ def send_input_data():
             gear,
             throttle,
             brake,
+            clutch,
             steer,
             fuel,
             kers_charge,
@@ -200,7 +204,30 @@ def send_input_data():
     except:
         pass
 
-def send_susp_gforce_data():
+def send_imu_data():
+
+    global sim_info
+
+    try:
+        if sim_info is None:
+            return
+        
+        ag = sim_info.physics.accG
+        r = sim_info.physics.roll
+        p = sim_info.physics.pitch
+
+        packet_body = IMU_STRUCT.pack(
+            ag[0], ag[1], ag[2], # X, Y, Z
+            r,
+            p
+        )
+
+        send_udp(PKT_IMU, packet_body)
+        
+    except:
+        pass
+
+def send_suspension_data():
 
     global sim_info
 
@@ -209,14 +236,19 @@ def send_susp_gforce_data():
             return
 
         st = sim_info.physics.suspensionTravel
-        ag = sim_info.physics.accG     
+        cmb = sim_info.physics.camberRAD
+        w_l = sim_info.physics.wheelLoad
+        w_asp = sim_info.physics.wheelAngularSpeed
 
-        packet_body = DYNAMICS_STRUCT.pack(
-            st[0], st[1], st[2], st[3], # FL, FR, RL, RR
-            ag[0], ag[1], ag[2]         # X, Y, Z
+        # FL, FR, RL, RR
+        packet_body = SUSP_STRUCT.pack(
+            st[0], st[1], st[2], st[3],
+            cmb[0], cmb[1], cmb[2], cmb[3],
+            w_l[0], w_l[1], w_l[2], w_l[3],
+            w_asp[0], w_asp[1], w_asp[2], w_asp[3]
         )
 
-        send_udp(PKT_SUSP_GFORCE, packet_body)
+        send_udp(PKT_SUSP, packet_body)
         
     except:
         pass
@@ -273,7 +305,7 @@ def send_tyre_data():
         press = ac.getCarState(0, acsys.CS.DynamicPressure)
         dirt = ac.getCarState(0, acsys.CS.TyreDirtyLevel)
         wear = sim_info.physics.tyreWear
-        slip = sim_info.physics.wheelSlip
+        slip = sim_info.physics.wheelSlip # derivado, pero util como referencia desde el motor de ac
 
         packet_body = TYRE_STRUCT.pack(
             tyre_compound,
@@ -370,12 +402,20 @@ def send_info():
         driver = (str(DRIVER_NAME) or "Driver").encode('utf-8')[:32]
         team_id = (str(TEAM_ID) or "DMG").encode('utf-8')[:20]
         in_pit_box = bool(ac.isCarInPit(0))
+        dist = sim_info.graphics.distanceTraveled
+        c_dmg = sim_info.physics.carDamage
+        tc_on = bool(sim_info.physics.tc > 0.0)
+        abs_on = bool(sim_info.physics.abs > 0.0)
 
         packet_body = INFO_STRUCT.pack(
             num,
             driver,
             team_id,
-            in_pit_box
+            in_pit_box,
+            dist,
+            c_dmg[0], c_dmg[1], c_dmg[2], c_dmg[3], c_dmg[4],
+            tc_on,
+            abs_on
         )
 
         send_udp(PKT_INFO, packet_body)
@@ -429,7 +469,8 @@ def acUpdate(deltaT):
     
     if timer_fast > period_fast:
         send_input_data()
-        send_susp_gforce_data()
+        send_suspension_data()
+        send_imu_data()
 
         if tick % DIV_MID == 0:
             send_live_timing_data()
