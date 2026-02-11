@@ -41,11 +41,11 @@ period_slow = UPDATE_SLOW_FREQ
 HEADER_STRUCT = struct.Struct('<BBQ')
 INFO_STRUCT = struct.Struct('<4s32s20s?6f??')
 INPUT_STRUCT = struct.Struct('<I10f')
-IMU_STRUCT = struct.Struct('<7f')
-SUSP_STRUCT = struct.Struct('<16f')
+IMU_STRUCT = struct.Struct('<8f')
+SUSP_STRUCT = struct.Struct('<18f')
 TIMING_STRUCT = struct.Struct('<BIfBIIIH?B')
 TYRE_STRUCT = struct.Struct('<10s20f')
-AERO_STRUCT = struct.Struct('<7f')
+AERO_STRUCT = struct.Struct('<5f')
 GPS_STRUCT = struct.Struct('<3f')
 
 PKT_INFO = 1
@@ -205,13 +205,15 @@ def send_imu_data():
         yawr = agv[1] # yaw_rate: rad/s
         vel = ac.getCarState(0, acsys.CS.LocalVelocity) # [x,y,z]
         sl = atan2(vel[0], vel[2]) # side_slip: rad  - derivado, de uso referencial
+        cgh = sim_info.physics.cgHeight
 
         packet_body = IMU_STRUCT.pack(
             ag[0], ag[1], ag[2], # X, Y, Z
             r,
             p,
             yawr,
-            sl
+            sl,
+            cgh
         )
 
         send_udp_pkt(PKT_IMU, packet_body)
@@ -231,13 +233,15 @@ def send_suspension_data():
         cmb = sim_info.physics.camberRAD
         w_l = sim_info.physics.wheelLoad
         w_asp = sim_info.physics.wheelAngularSpeed
+        rh = sim_info.physics.rideHeight
 
-        # FL, FR, RL, RR
+        # FL, FR, RL, RR, rh: FRONT, REAR
         packet_body = SUSP_STRUCT.pack(
             st[0], st[1], st[2], st[3],
             cmb[0], cmb[1], cmb[2], cmb[3],
             w_l[0], w_l[1], w_l[2], w_l[3],
-            w_asp[0], w_asp[1], w_asp[2], w_asp[3]
+            w_asp[0], w_asp[1], w_asp[2], w_asp[3],
+            rh[0], rh[1]
         )
 
         send_udp_pkt(PKT_SUSP, packet_body)
@@ -327,8 +331,7 @@ def send_aero_data():
             downforce,
             cl_front,
             cl_rear,
-            cd_aero,
-            *sim_info.physics.rideHeight
+            cd_aero
         )
 
         send_udp_pkt(PKT_AERO, packet_body)
